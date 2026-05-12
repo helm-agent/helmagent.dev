@@ -885,24 +885,46 @@ pong. running 3 background tasks in default.</pre>
 
   // ---------- Router ----------
   const routes = document.querySelectorAll('[data-route]');
-  function showRoute(path) {
+  function showRoute(path, hash) {
     const target = (path === '/changelog') ? '/changelog' : '/';
     routes.forEach(el => el.classList.toggle('route-active', el.getAttribute('data-route') === target));
     document.title = target === '/changelog' ? 'Helm — Changelog' : 'Helm — An always-on coding agent';
-    window.scrollTo({ top: 0, behavior: 'instant' });
     if (target === '/changelog') renderChangelog();
+    const id = hash ? decodeURIComponent(hash.replace(/^#/, '')) : '';
+    if (id) {
+      const el = document.getElementById(id);
+      if (el) el.scrollIntoView({ behavior: 'instant', block: 'start' });
+      // First cold load of /changelog#tag: articles don't exist yet because
+      // renderChangelog is async. Callers update history before calling
+      // showRoute, so renderChangelog scrolls via location.hash once ready.
+    } else {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
   }
+  // Selector widened from a[data-link] to a[href] so we can also intercept
+  // bare hash links (#features, #cli, ...) clicked while off the home route.
   document.addEventListener('click', (e) => {
-    const a = e.target.closest('a[data-link]');
+    const a = e.target.closest('a[href]');
     if (!a) return;
     const href = a.getAttribute('href');
-    if (!href || href.startsWith('#') || href.startsWith('http')) return;
+    if (!href || href === '#') return;
+    if (href.startsWith('#') && location.pathname !== '/') {
+      e.preventDefault();
+      history.pushState({}, '', '/' + href);
+      showRoute('/', href);
+      return;
+    }
+    if (!a.matches('[data-link]')) return;
+    if (href.startsWith('#') || href.startsWith('http')) return;
     e.preventDefault();
     history.pushState({}, '', href);
-    showRoute(href);
+    const hashIdx = href.indexOf('#');
+    const pathPart = hashIdx >= 0 ? href.slice(0, hashIdx) : href;
+    const hashPart = hashIdx >= 0 ? href.slice(hashIdx) : '';
+    showRoute(pathPart, hashPart);
   });
-  window.addEventListener('popstate', () => showRoute(location.pathname));
-  showRoute(location.pathname);
+  window.addEventListener('popstate', () => showRoute(location.pathname, location.hash));
+  showRoute(location.pathname, location.hash);
 
   // ---------- Live uptime ticker (hero) ----------
   const startMs = Date.now() - ((4*86400 + 3*3600 + 12*60 + 41) * 1000);
