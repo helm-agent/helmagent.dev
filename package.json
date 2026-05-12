@@ -1,0 +1,13 @@
+{
+  "name": "helm.sorrycc.com",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "^4.86.0"
+  }
+}

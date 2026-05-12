@@ -1,0 +1,1558 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Helm — An always-on coding agent</title>
+<meta name="description" content="Helm is an Electron desktop app and CLI that wraps Claude Agent SDK. A detached daemon keeps long-running agent work alive across restarts." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['Geist', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+          mono: ['"Geist Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        },
+        colors: {
+          ink: {
+            950: '#0a0b0d', 900: '#0e1013', 800: '#14171b', 700: '#1c2026',
+            600: '#262b33', 500: '#3a414c', 400: '#6b7280', 300: '#9aa3af',
+            200: '#c9cfd8', 100: '#e6e9ee', 50:  '#f3f5f8',
+          },
+          paper: { DEFAULT: '#f5f2ec', dark: '#1a1814' },
+          teal:  { DEFAULT: '#3ec9b6', soft: '#5fd9c7', deep: '#0d6b62', bg: '#0b1715' },
+          amber: { warn: '#e5a04a' },
+          rose:  { warn: '#e26d6d' },
+          violet:{ tag:  '#a78bfa' },
+        },
+      }
+    }
+  };
+</script>
+<style>
+  :root { color-scheme: dark; }
+  html:not(.dark) { color-scheme: light; }
+  noscript { display: none; }
+  html, body { font-family: 'Geist', ui-sans-serif, system-ui, sans-serif; }
+  body { font-feature-settings: "ss01", "cv11"; -webkit-font-smoothing: antialiased; }
+
+  html.dark body { background: #0a0b0d; color: #e6e9ee; }
+  html:not(.dark) body { background: #fafaf8; color: #14171b; }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(to right, rgba(255,255,255,.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,.04) 1px, transparent 1px);
+    background-size: 56px 56px;
+    background-position: -1px -1px;
+  }
+  html:not(.dark) .grid-bg {
+    background-image:
+      linear-gradient(to right, rgba(20,23,27,.06) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(20,23,27,.06) 1px, transparent 1px);
+  }
+  .grid-fade {
+    -webkit-mask-image: radial-gradient(ellipse at 50% 35%, #000 35%, transparent 75%);
+            mask-image: radial-gradient(ellipse at 50% 35%, #000 35%, transparent 75%);
+  }
+
+  .hair { border-color: rgba(255,255,255,.08); }
+  html:not(.dark) .hair { border-color: rgba(20,23,27,.10); }
+  .hair-strong { border-color: rgba(255,255,255,.14); }
+  html:not(.dark) .hair-strong { border-color: rgba(20,23,27,.16); }
+
+  /* Blinking caret */
+  .caret::after {
+    content: "▍"; display: inline-block; margin-left: 2px; color: #3ec9b6;
+    animation: blink 1.05s steps(1, end) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .reveal { opacity: 0; transform: translateY(8px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity:1; transform:none; transition:none; } }
+
+  .tab-active { color: #e6e9ee; }
+  html:not(.dark) .tab-active { color: #14171b; }
+
+  /* Token colors */
+  .tk-bin  { color: #3ec9b6; font-weight: 500; }
+  .tk-flag { color: #e5a04a; }
+  .tk-str  { color: #f5c08a; }
+  .tk-com  { color: #6b7280; font-style: italic; }
+  .tk-kw   { color: #a78bfa; }
+  .tk-num  { color: #5fd9c7; }
+  html:not(.dark) .tk-flag { color: #b87015; }
+  html:not(.dark) .tk-str  { color: #a85d13; }
+
+  ::selection { background: rgba(62,201,182,.35); color: inherit; }
+  html { scroll-behavior: smooth; scroll-padding-top: 88px; }
+  :focus-visible { outline: 2px solid #3ec9b6; outline-offset: 2px; border-radius: 6px; }
+
+  .octo-grad stop:nth-child(1) { stop-color: #5fd9c7; }
+  .octo-grad stop:nth-child(2) { stop-color: #3ec9b6; }
+  .octo-grad stop:nth-child(3) { stop-color: #0d6b62; }
+
+  .copy-ok { color: #3ec9b6 !important; }
+
+  /* Surface palette */
+  html:not(.dark) .card-bg   { background: #ffffff; }
+  html.dark        .card-bg   { background: #0e1013; }
+  html:not(.dark) .code-bg   { background: #0e1013; }
+  html.dark        .code-bg   { background: #0b0d10; }
+  html:not(.dark) .surface-2 { background: #f3f5f8; }
+  html.dark        .surface-2 { background: #0e1013; }
+  /* Paper-tone "config" surface */
+  .paper-bg { background: #f6f2ea; color: #1a1814; }
+  html.dark .paper-bg { background: #1a1814; color: #ece6d8; }
+  /* "Screen" surface for streaming output */
+  .screen-bg {
+    background:
+      linear-gradient(180deg, rgba(62,201,182,.02), transparent 30%),
+      #07191a;
+    color: #c9efe7;
+    position: relative;
+  }
+  .screen-bg::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(62,201,182,.05) 0px, rgba(62,201,182,.05) 1px,
+      transparent 1px, transparent 3px);
+    mix-blend-mode: screen;
+    opacity: .55;
+  }
+  html:not(.dark) .screen-bg { background: #06141a; }
+
+  [data-route] { display: none; }
+  [data-route].route-active { display: block; }
+
+  .md h1, .md h2, .md h3 { font-weight: 600; letter-spacing: -0.01em; }
+  .md h1 { font-size: 1.25rem; margin-top: 1.25rem; }
+  .md h2 { font-size: 1.05rem; margin-top: 1.1rem; }
+  .md h3 { font-size: .98rem; margin-top: 1rem; }
+  .md p, .md li { line-height: 1.7; }
+  .md ul { list-style: disc; padding-left: 1.25rem; }
+  .md ol { list-style: decimal; padding-left: 1.25rem; }
+  .md a { color: #3ec9b6; text-decoration: underline; text-underline-offset: 3px; }
+  .md code {
+    font-family: 'Geist Mono', ui-monospace, monospace; font-size: .86em;
+    padding: .12em .35em; border-radius: 4px; background: rgba(255,255,255,.06);
+  }
+  html:not(.dark) .md code { background: rgba(20,23,27,.06); }
+  .md pre {
+    font-family: 'Geist Mono', ui-monospace, monospace; font-size: .85em;
+    padding: 1rem; border-radius: 8px; background: #0b0d10; color: #c9cfd8; overflow-x: auto;
+  }
+  .md hr { border: 0; border-top: 1px solid rgba(255,255,255,.08); margin: 1.5rem 0; }
+  html:not(.dark) .md hr { border-color: rgba(20,23,27,.10); }
+
+  .chip { display:inline-flex; align-items:center; height: 18px; padding: 0 6px; border-radius: 4px; font-family:'Geist Mono', monospace; font-size: 10.5px; letter-spacing: .02em; text-transform: uppercase; }
+  .chip-feat  { background: rgba(62,201,182,.14); color: #3ec9b6; }
+  .chip-fix   { background: rgba(229,109,109,.14); color: #e26d6d; }
+  .chip-chore { background: rgba(155,164,177,.14); color: #9aa3af; }
+  .chip-docs  { background: rgba(167,139,250,.16); color: #a78bfa; }
+  .chip-perf  { background: rgba(229,160,74,.16); color: #e5a04a; }
+  .chip-refactor { background: rgba(95,217,199,.12); color: #5fd9c7; }
+
+  .dot { width: 6px; height: 6px; border-radius: 9999px; background: #3ec9b6; display: inline-block; }
+  .nav-dot { width: 6px; height: 6px; border-radius: 9999px; background: #3ec9b6; box-shadow: 0 0 0 3px rgba(62,201,182,.18); }
+
+  .term-shadow {
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.04) inset,
+      0 30px 60px -30px rgba(0,0,0,.7),
+      0 80px 120px -50px rgba(13,107,98,.25);
+  }
+  html:not(.dark) .term-shadow {
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.04) inset,
+      0 24px 50px -28px rgba(20,23,27,.25),
+      0 60px 100px -50px rgba(13,107,98,.18);
+  }
+
+  .pulse { position: relative; width: 8px; height: 8px; border-radius: 9999px; background: #3ec9b6; }
+  .pulse::after {
+    content: ""; position: absolute; inset: -3px; border-radius: 9999px;
+    box-shadow: 0 0 0 0 rgba(62,201,182,.5);
+    animation: pulse 2.2s ease-out infinite;
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(62,201,182,.5); }
+    80%  { box-shadow: 0 0 0 10px rgba(62,201,182,0); }
+    100% { box-shadow: 0 0 0 0 rgba(62,201,182,0); }
+  }
+
+  .hero-glow {
+    background: radial-gradient(60% 50% at 50% 0%, rgba(62,201,182,.10), transparent 70%);
+  }
+  html:not(.dark) .hero-glow {
+    background: radial-gradient(60% 50% at 50% 0%, rgba(13,107,98,.08), transparent 70%);
+  }
+
+  .version-sticky { backdrop-filter: blur(8px); }
+
+  /* ============================================ NEW: daemon node */
+  .daemon-node {
+    width: 96px; height: 96px; border-radius: 9999px;
+    background: radial-gradient(circle at 30% 30%, #5fd9c7, #0d6b62 70%);
+    box-shadow:
+      0 0 0 1px rgba(62,201,182,.4),
+      0 0 0 8px rgba(62,201,182,.08),
+      0 0 60px 0 rgba(62,201,182,.45);
+    position: relative;
+    display: grid; place-items: center;
+    color: #061a18;
+    font-family: 'Geist Mono', monospace;
+  }
+  .daemon-node::after {
+    content: ""; position: absolute; inset: -14px; border-radius: 9999px;
+    border: 1px dashed rgba(62,201,182,.4);
+    animation: orbit 14s linear infinite;
+  }
+  @keyframes orbit { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .daemon-node::after { animation: none; }
+  }
+
+  /* SSE traveling pulses */
+  .sse-wire { position: relative; height: 1px; background: linear-gradient(to right, rgba(62,201,182,0), rgba(62,201,182,.35), rgba(62,201,182,0)); }
+  .sse-wire-v { position: relative; width: 1px; background: linear-gradient(to bottom, rgba(62,201,182,0), rgba(62,201,182,.35), rgba(62,201,182,0)); }
+  .sse-pulse {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    width: 6px; height: 6px; border-radius: 9999px; background: #3ec9b6;
+    box-shadow: 0 0 12px 2px rgba(62,201,182,.7);
+  }
+  .sse-pulse.go-right { animation: pulse-right 2.8s linear infinite; }
+  .sse-pulse.go-left  { animation: pulse-left  3.6s linear infinite; animation-delay: 1.4s; }
+  .sse-pulse.go-down  { animation: pulse-down  3.2s linear infinite; left: 50%; transform: translateX(-50%); top: 0; }
+  .sse-pulse.go-up    { animation: pulse-up    4.0s linear infinite; animation-delay: 1.6s; left: 50%; transform: translateX(-50%); top: 0; }
+  @keyframes pulse-right { 0% { left: 0%; opacity: 0; } 10%{opacity:1;} 90%{opacity:1;} 100% { left: 100%; opacity: 0; } }
+  @keyframes pulse-left  { 0% { left: 100%; opacity: 0; } 10%{opacity:1;} 90%{opacity:1;} 100% { left: 0%; opacity: 0; } }
+  @keyframes pulse-down  { 0% { top: 0%; opacity: 0; } 10%{opacity:1;} 90%{opacity:1;} 100% { top: 100%; opacity: 0; } }
+  @keyframes pulse-up    { 0% { top: 100%; opacity: 0; } 10%{opacity:1;} 90%{opacity:1;} 100% { top: 0%; opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .sse-pulse { display: none; }
+  }
+
+  /* Hero split-screen: terminal + electron, with node between */
+  .split-mini-window { font-size: 11.5px; }
+  .split-window {
+    border-radius: 10px; border: 1px solid rgba(255,255,255,.12); overflow: hidden;
+  }
+  html:not(.dark) .split-window { border-color: rgba(20,23,27,.16); }
+
+  /* Kill-the-terminal demo states (driven by JS attribute on container) */
+  .kt-stage { --left-opacity: 1; --left-x: 0; }
+  .kt-stage[data-state="alive"]  .kt-term { opacity: 1; transform: none; }
+  .kt-stage[data-state="kill"]   .kt-term { opacity: 0; transform: scale(.94); filter: blur(1px); }
+  .kt-stage[data-state="gone"]   .kt-term { opacity: 0; transform: translateY(8px) scale(.96); }
+  .kt-stage[data-state="reopen"] .kt-term { opacity: 1; transform: none; }
+  .kt-term { transition: opacity .9s ease, transform .9s ease, filter .9s ease; }
+  .kt-daemon-status {
+    transition: color .4s ease;
+  }
+  .kt-stage[data-state="kill"] .kt-daemon-status,
+  .kt-stage[data-state="gone"] .kt-daemon-status {
+    color: #3ec9b6;
+  }
+  .kt-banner { transition: opacity .4s ease; }
+
+  /* Permission modes widget */
+  .pm-radio { position: absolute; opacity: 0; pointer-events: none; }
+  .pm-label {
+    display: block; cursor: pointer; padding: 14px 16px;
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    transition: background .2s ease, color .2s ease;
+  }
+  html:not(.dark) .pm-label { border-bottom-color: rgba(20,23,27,.08); }
+  .pm-label:hover { background: rgba(62,201,182,.04); }
+  .pm-radio:checked + .pm-label {
+    background: rgba(62,201,182,.08);
+    border-left: 2px solid #3ec9b6;
+    padding-left: 14px;
+  }
+  .pm-radio:checked + .pm-label .pm-name { color: #3ec9b6; }
+  .pm-radio:focus-visible + .pm-label { outline: 2px solid #3ec9b6; outline-offset: -2px; }
+  .pm-name { font-family: 'Geist Mono', monospace; font-size: 13px; }
+  .pm-blurb { font-size: 12.5px; color: #9aa3af; margin-top: 4px; }
+
+  .pm-scene { display: none; }
+  .pm-scene.active { display: block; animation: fadein .35s ease; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* Octopus watermark */
+  .octo-watermark {
+    position: absolute; pointer-events: none; user-select: none;
+    inset: auto;
+    color: rgba(62,201,182,.06);
+  }
+  html:not(.dark) .octo-watermark { color: rgba(184,112,21,.08); }
+
+  /* Light-mode accent: warmer, amber-leaning */
+  html:not(.dark) .text-teal           { color: #b87015; }
+  html:not(.dark) .hover\:text-teal:hover      { color: #b87015; }
+  html:not(.dark) .hover\:text-teal-soft:hover { color: #c8801a; }
+  html:not(.dark) .bg-teal             { background-color: #c8801a; color: #fafaf8; }
+  html:not(.dark) .hover\:bg-teal-soft:hover   { background-color: #d59235; }
+  html:not(.dark) .border-teal         { border-color: #c8801a; }
+  html:not(.dark) .bg-teal\/5          { background-color: rgba(200,128,26,.05); }
+  html:not(.dark) .bg-teal\/10         { background-color: rgba(200,128,26,.10); }
+  html:not(.dark) .bg-teal\/15         { background-color: rgba(200,128,26,.15); }
+  html:not(.dark) .ring-teal           { --tw-ring-color: #c8801a; }
+  html:not(.dark) ::selection          { background: rgba(200,128,26,.30); color: inherit; }
+
+  /* Section header octopus mark — 8 poses */
+  .sec-tag { display: inline-flex; align-items: center; gap: 9px; }
+  .sec-tag::after {
+    content: ''; display: inline-block; width: 13px; height: 13px;
+    background-color: currentColor; opacity: .6;
+    -webkit-mask: var(--octo) no-repeat center / contain;
+            mask: var(--octo) no-repeat center / contain;
+    transition: transform .35s ease, opacity .25s ease;
+  }
+  .sec-tag:hover::after { transform: scale(1.22) rotate(-6deg); opacity: .9; }
+  .sec-tag[data-pose="01"] { --octo: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5c-3.6 0-6.5 2.7-6.5 6 0 1.4.5 2.6 1.3 3.6'/><path d='M18.5 9.5c0 1.4-.5 2.6-1.3 3.6'/><circle cx='10' cy='8.5' r='.7' fill='black' stroke='none'/><circle cx='14' cy='8.5' r='.7' fill='black' stroke='none'/><path d='M7 13c-.5 1.5-2 2.5-3 3M9.5 14c-.5 2-.8 3.5-1.3 5M12 14v5.5M14.5 14c.5 2 .8 3.5 1.3 5M17 13c.5 1.5 2 2.5 3 3'/></svg>"); }
+  .sec-tag[data-pose="02"] { --octo: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5c-3.6 0-6.5 2.7-6.5 6 0 1.4.5 2.6 1.3 3.6'/><path d='M18.5 9.5c0 1.4-.5 2.6-1.3 3.6'/><circle cx='10' cy='8.5' r='.7' fill='black' stroke='none'/><circle cx='14' cy='8.5' r='.7' fill='black' stroke='none'/><path d='M7.5 13c1 1 2.5 1.5 4 1.8M9.5 14c1.5 1.5 3 2.5 5 2.8M12 14.5c1.8 1.5 3.5 2.5 5.5 2.8M14.5 14c1.5 1 3 1.3 4.8 1.3M17 13.5c1.3.5 2.8.3 4.2.2'/></svg>"); }
+  .sec-tag[data-pose="03"] { --octo: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5c-3.6 0-6.5 2.7-6.5 6 0 1.4.5 2.6 1.3 3.6'/><path d='M18.5 9.5c0 1.4-.5 2.6-1.3 3.6'/><circle cx='10' cy='8.5' r='.7' fill='black' stroke='none'/><circle cx='14' cy='8.5' r='.7' fill='black' stroke='none'/><path d='M16.5 13c-1 1-2.5 1.5-4 1.8M14.5 14c-1.5 1.5-3 2.5-5 2.8M12 14.5c-1.8 1.5-3.5 2.5-5.5 2.8M9.5 14c-1.5 1-3 1.3-4.8 1.3M7 13.5c-1.3.5-2.8.3-4.2.2'/></svg>"); }
+  .sec-tag[data-pose="04"] { --octo: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5c-3.6 0-6.5 2.7-6.5 6 0 1.4.5 2.6 1.3 3.6'/><path d='M18.5 9.5c0 1.4-.5 2.6-1.3 3.6'/><circle cx='10' cy='8.5' r='.7' fill='black' stroke='none'/><circle cx='14' cy='8.5' r='.7' fill='black' stroke='none'/><path d='M6 13c-1 .3-2 .8-2.5 2M9 14c-.8 1.3-1.5 2.8-1.8 4.3M12 14v5M15 14c.8 1.3 1.5 2.8 1.8 4.3M18 13c1 .3 2 .8 2.5 2'/></svg>"); }
+  .sec-tag[data-pose="05"] { --octo: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5c-3.6 0-6.5 2.7-6.5 6 0 1.4.5 2.6 1.3 3.6'/><path d='M18.5 9.5c0 1.4-.5 2.6-1.3 3.6'/><circle cx='10' cy='8.5' r='.7' fill='black' stroke='none'/><circle cx='14' cy='8.5' r='.7' fill='black' stroke='none'/><path d='M8 13c0 1.2 1 2.3 2.2 2.5M10 14c.2 1.2.8 1.8 1.8 2M12 14.5c0 1 .3 1.8.8 2.3M14 14c.2 1.2-.4 1.8-1.4 2M16 13c0 1.2-1 2.3-2.2 2.5'/></svg>"); }
+  .sec-tag[data-pose="06"] { --octo: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5c-3.6 0-6.5 2.7-6.5 6 0 1.4.5 2.6 1.3 3.6'/><path d='M18.5 9.5c0 1.4-.5 2.6-1.3 3.6'/><circle cx='10' cy='8.5' r='.7' fill='black' stroke='none'/><circle cx='14' cy='8.5' r='.7' fill='black' stroke='none'/><path d='M7.5 13c-.3 2.5-.4 5-.3 7M10 14c-.2 2.3-.3 4.5-.2 6.2M12 14v6M14 14c.2 2.3.3 4.5.2 6.2M16.5 13c.3 2.5.4 5 .3 7'/></svg>"); }
+  .sec-tag[data-pose="07"] { --octo: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5c-3.6 0-6.5 2.7-6.5 6 0 1.4.5 2.6 1.3 3.6'/><path d='M18.5 9.5c0 1.4-.5 2.6-1.3 3.6'/><circle cx='10' cy='8.5' r='.7' fill='black' stroke='none'/><circle cx='14' cy='8.5' r='.7' fill='black' stroke='none'/><path d='M7 13c-1 .2-2 0-2.8-1M9.5 14c-.5 1.5-1 3-1.5 4.3M12 14v5M14.5 14c.5 1.5 1 3 1.5 4.3M17 13c1 .2 2 0 2.8-1'/></svg>"); }
+  .sec-tag[data-pose="08"] { --octo: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5c-3.6 0-6.5 2.7-6.5 6 0 1.4.5 2.6 1.3 3.6'/><path d='M18.5 9.5c0 1.4-.5 2.6-1.3 3.6'/><circle cx='10' cy='8.5' r='.7' fill='black' stroke='none'/><circle cx='14' cy='8.5' r='.7' fill='black' stroke='none'/><path d='M7 13c-.6 1.2-1.8 2-3 2.3M9.5 14c-.2 1.8.5 3.5-.5 5M12 14v5M14.5 14c.7 1.5 1.5 2.8 3 3.5M17 13c.6.8 1.8 1.2 3.2 1'/></svg>"); }
+
+  /* Pull-quote treatment */
+  .pull-quote {
+    font-size: clamp(28px, 4.2vw, 50px);
+    line-height: 1.08;
+    letter-spacing: -0.025em;
+    font-weight: 500;
+    text-wrap: balance;
+  }
+  .pull-quote em {
+    font-style: normal;
+    background: linear-gradient(90deg, #3ec9b6, #5fd9c7);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+
+  /* Mobile hero ordering */
+  @media (max-width: 1023px) {
+    .hero-artifact { order: -1; }
+  }
+</style>
+</head>
+<body class="min-h-screen antialiased">
+
+<a href="#main" class="sr-only focus:not-sr-only fixed top-2 left-2 z-50 bg-teal text-ink-950 px-3 py-1 rounded">Skip to content</a>
+
+<!-- Octopus reusable symbol -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="og-shared" x1="0" y1="0" x2="1" y2="1" class="octo-grad">
+      <stop offset="0%"/><stop offset="55%"/><stop offset="100%"/>
+    </linearGradient>
+    <symbol id="octo-mark" viewBox="0 0 32 32">
+      <path d="M16 4c-4.4 0-8 3.4-8 7.7v3.1c0 1 .6 1.9 1.5 2.3l.5.2v2.4c0 .6.5 1 1 1h.5v1.8c0 .5.5.9 1 .9.5 0 1-.4 1-.9V20.7h1v2.8c0 .5.5.9 1 .9.5 0 1-.4 1-.9V20.7h1v2.8c0 .5.5.9 1 .9.5 0 1-.4 1-.9V20.7h.5c.5 0 1-.4 1-1v-2.4l.5-.2c.9-.4 1.5-1.3 1.5-2.3v-3.1C24 7.4 20.4 4 16 4Z" fill="url(#og-shared)"/>
+      <circle cx="13" cy="11.5" r="1.1" fill="#0a0b0d"/>
+      <circle cx="19" cy="11.5" r="1.1" fill="#0a0b0d"/>
+      <circle cx="13.4" cy="11.1" r=".35" fill="#fff"/>
+      <circle cx="19.4" cy="11.1" r=".35" fill="#fff"/>
+    </symbol>
+    <symbol id="octo-outline" viewBox="0 0 200 200">
+      <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <!-- head -->
+        <path d="M100 28c-30 0-52 22-52 50v18c0 7 4 13 10 16l4 2v14c0 4 3 7 7 7h2"/>
+        <path d="M100 28c30 0 52 22 52 50v18c0 7-4 13-10 16l-4 2v14c0 4-3 7-7 7h-2"/>
+        <!-- eyes -->
+        <circle cx="82" cy="78" r="6"/>
+        <circle cx="118" cy="78" r="6"/>
+        <!-- tentacles -->
+        <path d="M71 135c-2 12-6 22-14 30s-18 12-30 8"/>
+        <path d="M85 138c-2 16-2 30 4 42"/>
+        <path d="M100 140c0 18 4 32 14 42"/>
+        <path d="M115 138c2 16 8 28 18 36"/>
+        <path d="M129 135c4 14 12 24 24 28s22 0 30-8"/>
+      </g>
+    </symbol>
+  </defs>
+</svg>
+
+<!-- ============================================================= NAV -->
+<header class="sticky top-0 z-40 backdrop-blur-md bg-white/60 dark:bg-ink-950/70 border-b hair">
+  <nav aria-label="Primary" class="mx-auto max-w-7xl px-5 sm:px-8 h-14 flex items-center gap-6">
+    <a href="/" data-link class="flex items-center gap-2 group" aria-label="Helm — home">
+      <svg width="22" height="22" aria-hidden="true"><use href="#octo-mark"/></svg>
+      <span class="font-semibold tracking-tight text-[15px]">Helm</span>
+    </a>
+    <ul class="hidden md:flex items-center gap-1 text-[13.5px] text-ink-300">
+      <li><a class="px-2.5 py-1.5 rounded-md hover:text-ink-100 hover:bg-white/5" href="#features">Features</a></li>
+      <li><a class="px-2.5 py-1.5 rounded-md hover:text-ink-100 hover:bg-white/5" href="#cli">CLI</a></li>
+      <li><a class="px-2.5 py-1.5 rounded-md hover:text-ink-100 hover:bg-white/5" href="#docs">Docs</a></li>
+      <li>
+        <a class="px-2.5 py-1.5 rounded-md hover:text-ink-100 hover:bg-white/5 inline-flex items-center gap-1.5"
+           href="/changelog" data-link>
+          Changelog
+          <span id="nav-changelog-dot" hidden class="nav-dot" aria-label="New release"></span>
+        </a>
+      </li>
+      <li>
+        <a class="px-2.5 py-1.5 rounded-md hover:text-ink-100 hover:bg-white/5 inline-flex items-center gap-1.5"
+           href="https://github.com/helm-agent/helm-agent" target="_blank" rel="noopener">
+          GitHub
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 17L17 7M10 7h7v7"/></svg>
+        </a>
+      </li>
+    </ul>
+    <div class="ml-auto flex items-center gap-2">
+      <button id="theme-toggle" type="button" aria-label="Toggle theme"
+              class="h-8 w-8 grid place-items-center rounded-md border hair hover:hair-strong text-ink-300">
+        <svg class="hidden dark:block" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg class="block dark:hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      </button>
+      <a href="#install"
+         class="hidden sm:inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-teal text-ink-950 hover:bg-teal-soft text-[13px] font-medium">
+        Install
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </a>
+    </div>
+  </nav>
+</header>
+
+<main id="main">
+
+<!-- =============================================== ROUTE: LANDING ('/') -->
+<div data-route="/" class="route-active">
+
+  <!-- =========== HERO (split-screen) =========== -->
+  <section class="relative overflow-hidden border-b hair">
+    <div class="absolute inset-0 grid-bg grid-fade pointer-events-none"></div>
+    <div class="absolute inset-0 hero-glow pointer-events-none"></div>
+    <div class="relative mx-auto max-w-7xl px-5 sm:px-8 pt-14 sm:pt-20 pb-16 sm:pb-20">
+
+      <div class="grid lg:grid-cols-12 gap-10 lg:gap-12 items-center">
+        <!-- LEFT: copy -->
+        <div class="lg:col-span-5">
+          <div class="inline-flex items-center gap-2 text-[12px] font-mono text-ink-300 border hair rounded-full px-2.5 py-1 mb-6">
+            <span class="pulse" aria-hidden="true"></span>
+            <span>daemon · uptime <span id="uptime-ticker" aria-live="off">4d 03h 12m 41s</span></span>
+          </div>
+          <h1 class="text-[40px] sm:text-[54px] lg:text-[58px] leading-[1.02] tracking-[-0.025em] font-semibold text-balance">
+            An always-on coding agent &mdash;
+            <span class="text-ink-300">that keeps working while you sleep.</span>
+          </h1>
+          <p class="mt-6 max-w-xl text-[16.5px] leading-relaxed text-ink-300">
+            Electron desktop and CLI for Claude agents. Both speak to one detached daemon over
+            <span class="font-mono text-ink-100">127.0.0.1</span> &mdash; so long runs survive
+            terminal exit, app restart, and the occasional crash.
+          </p>
+
+          <div class="mt-7 flex flex-col sm:flex-row gap-3">
+            <div class="relative flex-1 max-w-md">
+              <div class="flex items-center gap-3 rounded-lg border hair-strong code-bg pl-3 pr-1 py-1 font-mono text-[13.5px]">
+                <span class="text-teal select-none" aria-hidden="true">$</span>
+                <code class="flex-1 text-ink-100 whitespace-nowrap overflow-x-auto" id="hero-install-code">npm i -g helm-agent</code>
+                <button class="copy-btn shrink-0 h-7 w-7 grid place-items-center rounded-md text-ink-300 hover:text-ink-100 hover:bg-white/5"
+                        data-copy-target="hero-install-code" aria-label="Copy install command">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
+                </button>
+              </div>
+            </div>
+            <a href="https://github.com/helm-agent/helm-agent" target="_blank" rel="noopener"
+               class="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-lg border hair-strong text-[13.5px] hover:bg-white/5">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.8 10.9.6.1.8-.2.8-.5v-2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.5-.3-5.2-1.3-5.2-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2.9-.3 1.9-.4 2.9-.4s2 .1 2.9.4c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.1 0 4.4-2.7 5.4-5.2 5.7.4.4.8 1.1.8 2.2v3.2c0 .3.2.6.8.5 4.5-1.5 7.8-5.8 7.8-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
+              View on GitHub
+            </a>
+          </div>
+
+          <p class="mt-6 text-[12.5px] font-mono text-ink-400">
+            built on <span class="text-ink-200">@anthropic-ai/claude-agent-sdk</span>
+            · node ≥ 20 · macOS · linux · windows
+          </p>
+        </div>
+
+        <!-- RIGHT: terminal + daemon node (calmer) -->
+        <div class="lg:col-span-7 hero-artifact">
+          <div class="grid grid-cols-[1fr_auto] items-center gap-4 sm:gap-6">
+            <!-- Terminal (larger, more central) -->
+            <div class="split-window code-bg term-shadow">
+              <div class="flex items-center gap-1.5 h-8 px-3 border-b hair">
+                <span class="w-2.5 h-2.5 rounded-full bg-[#ff5f57]"></span>
+                <span class="w-2.5 h-2.5 rounded-full bg-[#febc2e]"></span>
+                <span class="w-2.5 h-2.5 rounded-full bg-[#28c840]"></span>
+                <span class="ml-2 font-mono text-ink-400 text-[11px]">helm — workspace · default</span>
+                <span class="ml-auto font-mono text-ink-400 text-[10.5px]">SSE 127.0.0.1:42424</span>
+              </div>
+              <div class="px-4 py-4 font-mono text-[13px] leading-[1.7] text-ink-100">
+                <div><span class="text-teal">$</span> <span class="tk-bin">helm</span> session tail nightly-review</div>
+                <div class="text-ink-300 mt-1"><span class="text-ink-400">[02:47]</span> reviewed 14 PRs · <span class="text-teal">3 flagged</span></div>
+                <div class="text-ink-300"><span class="text-ink-400">[03:12]</span> cron <span class="text-teal">daily-summary</span> &rarr; sent to #eng-leads</div>
+                <div class="text-ink-300"><span class="text-ink-400">[03:41]</span> queue drained &middot; 12 issues triaged</div>
+                <div class="text-ink-300"><span class="text-ink-400">[04:18]</span> eval <span class="text-teal">regression-suite</span> &middot; 96.4% pass</div>
+                <div class="text-ink-400">  &middot; daemon idle &middot; next cron in 4h 42m</div>
+                <div class="mt-2"><span class="text-teal">$</span> <span class="caret"></span></div>
+              </div>
+            </div>
+
+            <!-- Daemon node -->
+            <div class="relative grid place-items-center">
+              <div class="absolute left-[-18px] right-[-4px] top-1/2 -translate-y-1/2 h-px hidden sm:block">
+                <div class="sse-wire absolute inset-0"></div>
+                <div class="sse-pulse go-right"></div>
+                <div class="sse-pulse go-left"></div>
+              </div>
+              <div class="daemon-node relative z-10" role="img" aria-label="daemon">
+                <div class="text-center leading-tight">
+                  <div class="text-[10px] tracking-[.18em] uppercase opacity-80">daemon</div>
+                  <div class="text-[11px] font-semibold mt-0.5">:42424</div>
+                </div>
+              </div>
+              <div class="mt-3 font-mono text-[10.5px] text-ink-400 text-center hidden sm:block">
+                outlives<br/>its clients
+              </div>
+            </div>
+          </div>
+          <p class="mt-5 font-mono text-[11.5px] text-ink-400 text-center sm:text-right">
+            quit the terminal &mdash; the daemon keeps producing tokens.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========== PULL QUOTE (rhythm break) =========== -->
+  <section class="border-b hair">
+    <div class="mx-auto max-w-7xl px-5 sm:px-8 py-20 sm:py-28 text-center">
+      <p class="text-[12px] font-mono uppercase tracking-[0.18em] text-ink-400"><span class="sec-tag" data-pose="01">[ 01 ] Why</span></p>
+      <p class="pull-quote mt-6 max-w-4xl mx-auto">
+        Most agent setups are one-shot scripts.<br/>
+        Helm is a <em>runtime</em>.
+      </p>
+      <p class="mt-7 max-w-2xl mx-auto text-[15.5px] leading-[1.65] text-ink-300">
+        Lifecycle, sessions, approvals, schedules, queues &mdash; managed.
+        Workable from both GUI and terminal against the same engine. Started in
+        one, picked up in the other, finished while you're asleep.
+      </p>
+
+      <!-- evidence chip — grounds the abstract claim in a single concrete line -->
+      <div class="mt-10 inline-flex items-stretch rounded-lg border hair-strong code-bg font-mono text-[12.5px] overflow-hidden">
+        <span class="px-3 py-2 text-ink-400 border-r hair">$</span>
+        <span class="px-3 py-2 text-ink-100 whitespace-nowrap"><span class="tk-bin">helm</span> daemon status</span>
+        <span class="px-3 py-2 border-l hair text-ink-300 whitespace-nowrap">running · pid 84211 · uptime <span id="evidence-uptime">4d 03h</span></span>
+        <span class="px-3 py-2 border-l hair flex items-center gap-1.5 text-teal"><span class="pulse"></span> live</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========== HERO PILLAR: CLI + DAEMON (full-bleed, kill-the-terminal demo) =========== -->
+  <section id="features" class="border-b hair relative overflow-hidden">
+    <div class="absolute inset-0 grid-bg opacity-50 grid-fade pointer-events-none"></div>
+    <div class="relative mx-auto max-w-7xl px-5 sm:px-8 py-20 sm:py-28">
+
+      <div class="grid lg:grid-cols-12 gap-10 lg:gap-14 items-center">
+        <div class="lg:col-span-5">
+          <p class="text-[12px] font-mono uppercase tracking-[0.18em] text-ink-400"><span class="sec-tag" data-pose="02">[ 02 ] Hero feature</span></p>
+          <div class="mt-2 inline-flex items-center gap-2 text-[11px] font-mono uppercase tracking-[0.16em] text-teal">
+            <span class="dot"></span> pillar · cli &amp; daemon
+          </div>
+          <h2 class="mt-3 text-[34px] sm:text-[44px] leading-[1.05] tracking-[-0.025em] font-semibold text-balance">
+            Kill the terminal.<br/>
+            <span class="text-ink-300">The daemon doesn't care.</span>
+          </h2>
+          <p class="mt-5 text-[15.5px] leading-relaxed text-ink-300 max-w-xl">
+            The <span class="font-mono text-ink-100">helm</span> binary ships on npm as
+            <span class="font-mono text-ink-100">helm-agent</span>. The work happens in a
+            detached Bun HTTP+SSE daemon &mdash; with a lockfile, zombie detection, and a
+            clean SIGTERM shutdown. Close your terminal, restart the app, reboot the daemon
+            survives all three.
+          </p>
+          <ul class="mt-6 grid sm:grid-cols-2 gap-x-6 gap-y-3 text-[13.5px] text-ink-300 font-mono">
+            <li class="flex items-start gap-2"><span class="text-teal mt-1">→</span> detached process, survives exit</li>
+            <li class="flex items-start gap-2"><span class="text-teal mt-1">→</span> lockfile + zombie detection</li>
+            <li class="flex items-start gap-2"><span class="text-teal mt-1">→</span> clean SIGTERM shutdown</li>
+            <li class="flex items-start gap-2"><span class="text-teal mt-1">→</span> <span class="text-ink-100">helm server</span> for remote/multi-daemon</li>
+          </ul>
+          <div class="mt-7 flex items-center gap-3">
+            <button id="kt-replay" class="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border hair-strong text-[12.5px] font-mono text-ink-200 hover:bg-white/5">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15A9 9 0 1 1 6 5.3L23 4"/></svg>
+              Replay
+            </button>
+            <span id="kt-state-label" class="font-mono text-[11.5px] text-ink-400">step 1 / 4</span>
+          </div>
+        </div>
+
+        <div class="lg:col-span-7">
+          <div id="kt-stage" class="kt-stage relative rounded-2xl border hair-strong card-bg p-5 sm:p-7 term-shadow" data-state="alive" aria-label="Kill the terminal demo">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 items-stretch">
+              <!-- Terminal -->
+              <div class="kt-term split-window code-bg">
+                <div class="flex items-center gap-1.5 h-7 px-3 border-b hair">
+                  <span class="w-2 h-2 rounded-full bg-[#ff5f57]"></span>
+                  <span class="w-2 h-2 rounded-full bg-[#febc2e]"></span>
+                  <span class="w-2 h-2 rounded-full bg-[#28c840]"></span>
+                  <span id="kt-term-title" class="ml-2 font-mono text-ink-400 text-[10.5px]">~/projects/myapp</span>
+                </div>
+                <div class="px-3 py-3 font-mono text-[12px] leading-[1.75] text-ink-100">
+                  <div><span class="text-teal">$</span> <span class="tk-bin">helm</span> session tail default</div>
+                  <div class="text-ink-300">→ assistant</div>
+                  <div class="text-ink-100" id="kt-stream">Reading <span class="text-teal">src/log.ts</span>…</div>
+                  <div class="text-ink-300 text-[11px]">tokens streaming over SSE</div>
+                  <div class="mt-2 text-ink-400 text-[11px]" id="kt-after">⌃C to detach</div>
+                </div>
+              </div>
+
+              <!-- Daemon -->
+              <div class="split-window paper-bg p-4">
+                <div class="flex items-center justify-between">
+                  <span class="font-mono text-[10.5px] uppercase tracking-[0.16em] text-ink-400">daemon</span>
+                  <span class="pulse" aria-hidden="true"></span>
+                </div>
+                <div class="mt-3 font-mono text-[12.5px]">
+                  <div class="flex justify-between"><span>pid</span><span>84211</span></div>
+                  <div class="flex justify-between"><span>port</span><span>42424</span></div>
+                  <div class="flex justify-between"><span>uptime</span><span id="kt-daemon-uptime">4d 03h 12m</span></div>
+                  <div class="flex justify-between"><span>session</span><span class="kt-daemon-status">streaming</span></div>
+                  <div class="flex justify-between"><span>queue</span><span>2 in flight</span></div>
+                </div>
+                <div class="mt-3 pt-3 border-t hair text-[11.5px] font-mono">
+                  <div id="kt-banner" class="kt-banner text-ink-400">no clients attached &mdash; still working.</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- step indicator -->
+            <ol id="kt-steps" class="mt-5 grid grid-cols-4 gap-2 text-[11px] font-mono">
+              <li data-step="alive" class="px-2.5 py-1.5 rounded border hair text-ink-300">1 · alive</li>
+              <li data-step="kill"  class="px-2.5 py-1.5 rounded border hair text-ink-300">2 · kill terminal</li>
+              <li data-step="gone"  class="px-2.5 py-1.5 rounded border hair text-ink-300">3 · no clients</li>
+              <li data-step="reopen" class="px-2.5 py-1.5 rounded border hair text-ink-300">4 · reattach</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========== 3-UP PILLARS =========== -->
+  <section class="border-b hair">
+    <div class="mx-auto max-w-7xl px-5 sm:px-8 py-20 sm:py-24">
+      <div class="flex items-end justify-between flex-wrap gap-4 mb-12">
+        <div>
+          <p class="text-[12px] font-mono uppercase tracking-[0.18em] text-ink-400"><span class="sec-tag" data-pose="03">[ 03 ] Three more pillars</span></p>
+          <h2 class="mt-3 text-[26px] sm:text-[32px] leading-[1.3] tracking-[-0.025em] font-medium">
+            <span class="font-mono text-ink-400 text-[14px] sm:text-[16px] mr-2 align-middle">01</span>Desktop.<span class="text-ink-400 mx-3">·</span><span class="font-mono text-ink-400 text-[14px] sm:text-[16px] mr-2 align-middle">02</span>Automation.<span class="text-ink-400 mx-3">·</span><span class="font-mono text-ink-400 text-[14px] sm:text-[16px] mr-2 align-middle">03</span>Extensibility.
+          </h2>
+        </div>
+      </div>
+
+      <div class="grid md:grid-cols-3 gap-px bg-white/5 dark:bg-white/5 rounded-xl overflow-hidden border hair">
+        <!-- A: Desktop UI -->
+        <article class="card-bg p-6 sm:p-7">
+          <div class="flex items-center gap-2 text-[11px] font-mono uppercase tracking-[0.16em] text-ink-400">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M7 22h10M12 18v4"/></svg>
+            Pillar · desktop
+          </div>
+          <h3 class="mt-3 text-[18px] font-semibold tracking-tight">Sessions, side by side.</h3>
+          <p class="mt-3 text-[13.5px] leading-relaxed text-ink-300">
+            Electron shell with React 19 and Tailwind 4. Streaming markdown, attachments,
+            async tool-approval prompts. Native tray, deep-links, auto-update.
+          </p>
+          <div class="mt-5 rounded-lg border hair overflow-hidden">
+            <div class="flex items-center gap-1 h-6 px-2 border-b hair surface-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-[#ff5f57]"></span>
+              <span class="w-1.5 h-1.5 rounded-full bg-[#febc2e]"></span>
+              <span class="w-1.5 h-1.5 rounded-full bg-[#28c840]"></span>
+            </div>
+            <div class="px-3 py-2.5 code-bg font-mono text-[11.5px]">
+              <div class="text-ink-400">user</div>
+              <div class="text-ink-100">refactor logger to pino</div>
+              <div class="mt-1.5 inline-flex items-center gap-1.5 text-[10.5px] px-1.5 py-0.5 rounded border hair text-amber-warn">
+                approve <span class="text-ink-100">write</span> src/log.ts?
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- B: Automation -->
+        <article class="card-bg p-6 sm:p-7">
+          <div class="flex items-center gap-2 text-[11px] font-mono uppercase tracking-[0.16em] text-ink-400">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            Pillar · automation
+          </div>
+          <h3 class="mt-3 text-[18px] font-semibold tracking-tight">Queues. Cron. Loops. Evals.</h3>
+          <p class="mt-3 text-[13.5px] leading-relaxed text-ink-300">
+            Per-workspace issue queue, unattended <em>loop</em> worker with pre/post
+            scripts and crash-resume, classic cron + one-shot <span class="font-mono text-ink-100">at</span>,
+            spec-based <span class="font-mono text-ink-100">helm eval</span>, delivery to Telegram,
+            DingTalk, WeCom, or webhooks.
+          </p>
+          <div class="mt-5 grid grid-cols-4 gap-1.5 text-[11px] font-mono">
+            <div class="border hair rounded p-2">
+              <div class="text-ink-400 text-[9.5px]">triage</div><div class="text-ink-100">2</div>
+            </div>
+            <div class="border hair rounded p-2">
+              <div class="text-ink-400 text-[9.5px]">todo</div><div class="text-ink-100">7</div>
+            </div>
+            <div class="border hair rounded p-2 bg-teal/10">
+              <div class="text-teal text-[9.5px]">in_prog</div><div class="text-ink-100">3</div>
+            </div>
+            <div class="border hair rounded p-2">
+              <div class="text-ink-400 text-[9.5px]">done</div><div class="text-ink-100">41</div>
+            </div>
+          </div>
+        </article>
+
+        <!-- C: Extensibility -->
+        <article class="card-bg p-6 sm:p-7">
+          <div class="flex items-center gap-2 text-[11px] font-mono uppercase tracking-[0.16em] text-ink-400">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 3v3M15 3v3M9 18v3M15 18v3"/><rect x="3" y="6" width="18" height="12" rx="2"/></svg>
+            Pillar · extensibility
+          </div>
+          <h3 class="mt-3 text-[18px] font-semibold tracking-tight">Multi-provider, multi-workspace.</h3>
+          <p class="mt-3 text-[13.5px] leading-relaxed text-ink-300">
+            Secrets in the OS keychain (0600 fallback); keys are never read back over HTTP.
+            Each workspace owns its provider, model, permission mode, and optional
+            <span class="font-mono text-ink-100">SOUL.md</span> persona. Fork sessions, rewind
+            file state, deep-search chats. Skills and Plugins install at user, project, or local scope.
+          </p>
+          <div class="mt-5 flex flex-wrap gap-1.5 text-[10.5px] font-mono">
+            <span class="px-2 py-0.5 rounded border hair text-ink-300">anthropic</span>
+            <span class="px-2 py-0.5 rounded border hair text-ink-300">sdk-default</span>
+            <span class="px-2 py-0.5 rounded border hair text-ink-300">+ custom</span>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========== PERMISSION MODES (interactive widget) =========== -->
+  <section class="border-b hair">
+    <div class="mx-auto max-w-7xl px-5 sm:px-8 py-20 sm:py-24">
+      <div class="grid lg:grid-cols-12 gap-10 items-start">
+        <div class="lg:col-span-3">
+          <p class="text-[12px] font-mono uppercase tracking-[0.18em] text-ink-400"><span class="sec-tag" data-pose="04">[ 04 ] Permission modes</span></p>
+          <h2 class="mt-2 text-[28px] sm:text-[32px] leading-[1.1] tracking-[-0.025em] font-semibold">
+            You decide how much rope.
+          </h2>
+          <p class="mt-3 text-[14.5px] text-ink-300">
+            Each workspace gets its own permission mode. Tasks scheduled by cron can override.
+            Click a mode to see what an agent does next.
+          </p>
+          <p class="mt-5 text-[12px] font-mono text-ink-400">legal values, exactly:</p>
+          <p class="mt-1 text-[12.5px] font-mono text-ink-200">
+            default · acceptEdits · bypassPermissions · plan
+          </p>
+        </div>
+
+        <div class="lg:col-span-9">
+          <div class="rounded-xl border hair-strong overflow-hidden card-bg" id="pm-widget">
+            <div class="grid md:grid-cols-[180px_1fr]">
+              <!-- selector -->
+              <fieldset class="border-r hair">
+                <legend class="sr-only">Permission mode</legend>
+
+                <input class="pm-radio" type="radio" name="pmode" id="pm-default" value="default" checked />
+                <label class="pm-label" for="pm-default">
+                  <div class="pm-name">default</div>
+                  <div class="pm-blurb">Ask before every write. Safest.</div>
+                </label>
+
+                <input class="pm-radio" type="radio" name="pmode" id="pm-accept" value="acceptEdits" />
+                <label class="pm-label" for="pm-accept">
+                  <div class="pm-name">acceptEdits</div>
+                  <div class="pm-blurb">Auto-approve file edits. Other tools still ask.</div>
+                </label>
+
+                <input class="pm-radio" type="radio" name="pmode" id="pm-bypass" value="bypassPermissions" />
+                <label class="pm-label" for="pm-bypass">
+                  <div class="pm-name">bypassPermissions</div>
+                  <div class="pm-blurb">Skip all prompts. For trusted, sandboxed work.</div>
+                </label>
+
+                <input class="pm-radio" type="radio" name="pmode" id="pm-plan" value="plan" />
+                <label class="pm-label" for="pm-plan" style="border-bottom: 0;">
+                  <div class="pm-name">plan</div>
+                  <div class="pm-blurb">Read-only. Outputs a plan, never edits.</div>
+                </label>
+              </fieldset>
+
+              <!-- scenes -->
+              <div class="code-bg p-7 sm:p-9 min-h-[380px] font-mono text-[14px] leading-[1.75]">
+                <div class="pm-scene active" data-scene="default">
+                  <div class="text-ink-400">assistant</div>
+                  <div class="text-ink-100">Refactoring <span class="text-teal">src/log.ts</span> to use pino.</div>
+                  <div class="mt-3 rounded-md border hair bg-amber-warn/10 px-3 py-2.5 flex items-center gap-3">
+                    <span class="text-amber-warn">●</span>
+                    <div class="flex-1">
+                      <div class="text-amber-warn text-[12px]">approval needed</div>
+                      <div class="text-ink-100 text-[12.5px]">write <span class="text-teal">src/log.ts</span> · 24 lines changed</div>
+                    </div>
+                    <div class="flex gap-1.5">
+                      <button class="px-2 py-0.5 rounded border hair text-ink-200 text-[11px]" type="button">deny</button>
+                      <button class="px-2 py-0.5 rounded bg-teal text-ink-950 text-[11px]" type="button">approve</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="pm-scene" data-scene="acceptEdits">
+                  <div class="text-ink-400">assistant</div>
+                  <div class="text-ink-100">Refactoring <span class="text-teal">src/log.ts</span>…</div>
+                  <div class="mt-2 text-ink-300">✓ wrote <span class="text-teal">src/log.ts</span> · 24 lines</div>
+                  <div class="text-ink-300">✓ wrote <span class="text-teal">src/log.test.ts</span> · 9 lines</div>
+                  <div class="mt-3 rounded-md border hair bg-amber-warn/10 px-3 py-2.5 flex items-center gap-3">
+                    <span class="text-amber-warn">●</span>
+                    <div class="flex-1">
+                      <div class="text-amber-warn text-[12px]">approval needed</div>
+                      <div class="text-ink-100 text-[12.5px]">run <span class="text-teal">bun test src/log.test.ts</span></div>
+                    </div>
+                    <div class="flex gap-1.5">
+                      <button class="px-2 py-0.5 rounded border hair text-ink-200 text-[11px]" type="button">deny</button>
+                      <button class="px-2 py-0.5 rounded bg-teal text-ink-950 text-[11px]" type="button">approve</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="pm-scene" data-scene="bypassPermissions">
+                  <div class="text-ink-400">assistant</div>
+                  <div class="text-ink-300">✓ wrote <span class="text-teal">src/log.ts</span> · 24 lines</div>
+                  <div class="text-ink-300">✓ wrote <span class="text-teal">src/log.test.ts</span> · 9 lines</div>
+                  <div class="text-ink-300">✓ ran <span class="text-teal">bun test</span> · 14 passed</div>
+                  <div class="text-ink-300">✓ ran <span class="text-teal">git add . &amp;&amp; git commit -m "refactor: pino"</span></div>
+                  <div class="mt-2 text-ink-100">Done. <span class="text-ink-400 text-[12px]">no prompts &mdash; 0.42s of human time.</span></div>
+                </div>
+                <div class="pm-scene" data-scene="plan">
+                  <div class="text-ink-400">assistant</div>
+                  <div class="text-ink-100">Plan to migrate logger:</div>
+                  <ol class="mt-2 text-ink-200 text-[12.5px] space-y-1">
+                    <li>1. Replace <span class="text-teal">winston</span> imports in 6 files.</li>
+                    <li>2. Initialize <span class="text-teal">pino</span> in <span class="text-teal">src/log.ts</span> with redaction.</li>
+                    <li>3. Update <span class="text-teal">tests</span> to capture stdout.</li>
+                    <li>4. Add CHANGELOG entry.</li>
+                  </ol>
+                  <div class="mt-3 text-[12px] text-ink-400">read-only mode &mdash; no files were written.</div>
+                </div>
+              </div>
+            </div>
+            <div class="border-t hair px-4 py-3 font-mono text-[11.5px] text-ink-400 flex flex-wrap items-center gap-x-3">
+              <span>set per workspace:</span>
+              <code class="text-ink-200">helm workspace new myapp --permission-mode <span id="pm-cmd" class="text-teal">default</span></code>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========== HOW IT WORKS (vertical layer cake with animated SSE) =========== -->
+  <section class="border-b hair relative">
+    <svg class="octo-watermark" aria-hidden="true" style="right:-40px; top:-60px; width:380px; height:380px;">
+      <use href="#octo-outline"/>
+    </svg>
+    <div class="relative mx-auto max-w-7xl px-5 sm:px-8 py-20 sm:py-28">
+      <div class="max-w-2xl">
+        <p class="text-[12px] font-mono uppercase tracking-[0.18em] text-ink-400"><span class="sec-tag" data-pose="05">[ 05 ] How it works</span></p>
+        <h2 class="mt-2 text-[30px] sm:text-[38px] leading-[1.1] tracking-[-0.025em] font-semibold">The daemon sits above its clients.</h2>
+        <p class="mt-3 text-[15px] text-ink-300 max-w-xl">
+          Stream tokens flow up to whichever client is attached. Drop the client &mdash; the
+          stream keeps producing, buffered by the daemon. Reattach to catch up.
+        </p>
+      </div>
+
+      <!-- Vertical layer cake -->
+      <div class="mt-14 grid md:grid-cols-[1fr_120px_1fr] items-center gap-y-6 max-w-4xl mx-auto">
+        <!-- Top: SDK -->
+        <div class="md:col-span-3">
+          <div class="mx-auto max-w-md rounded-xl border hair card-bg p-5 text-center">
+            <div class="text-[10.5px] font-mono uppercase tracking-[0.16em] text-ink-400">layer · model</div>
+            <h3 class="mt-1 text-[17px] font-semibold tracking-tight">Claude Agent SDK</h3>
+            <p class="mt-1 text-[12.5px] text-ink-300 font-mono">@anthropic-ai/claude-agent-sdk</p>
+          </div>
+        </div>
+
+        <!-- Wire SDK ↕ daemon -->
+        <div class="md:col-span-3 flex justify-center">
+          <div class="relative h-16 w-px">
+            <div class="sse-wire-v absolute inset-0"></div>
+            <div class="sse-pulse go-down"></div>
+            <div class="sse-pulse go-up"></div>
+          </div>
+        </div>
+
+        <!-- Middle: Daemon (highlighted) -->
+        <div class="md:col-span-3">
+          <div class="mx-auto max-w-2xl rounded-2xl border hair-strong card-bg p-6 relative">
+            <div class="absolute -top-2.5 left-6 px-2 h-5 grid place-items-center text-[10px] font-mono uppercase tracking-[0.16em] rounded-full bg-teal text-ink-950">daemon · outlives clients</div>
+            <div class="grid sm:grid-cols-3 gap-4 items-center mt-1">
+              <div class="sm:col-span-1 text-center sm:text-left">
+                <div class="text-[10.5px] font-mono uppercase tracking-[0.16em] text-ink-400">engine</div>
+                <h3 class="mt-1 text-[17px] font-semibold tracking-tight">Bun HTTP+SSE</h3>
+                <p class="mt-1 text-[12px] font-mono text-ink-400">127.0.0.1:42424</p>
+              </div>
+              <div class="sm:col-span-2 grid grid-cols-3 gap-2 text-[11px] font-mono">
+                <div class="border hair rounded px-2 py-1.5"><div class="text-ink-400 text-[9.5px]">sessions</div><div class="text-ink-100">12</div></div>
+                <div class="border hair rounded px-2 py-1.5"><div class="text-ink-400 text-[9.5px]">queue</div><div class="text-ink-100">4 / 5</div></div>
+                <div class="border hair rounded px-2 py-1.5"><div class="text-ink-400 text-[9.5px]">cron</div><div class="text-ink-100">7 jobs</div></div>
+                <div class="border hair rounded px-2 py-1.5"><div class="text-ink-400 text-[9.5px]">evals</div><div class="text-ink-100">queued 1</div></div>
+                <div class="border hair rounded px-2 py-1.5"><div class="text-ink-400 text-[9.5px]">pid</div><div class="text-ink-100">84211</div></div>
+                <div class="border hair rounded px-2 py-1.5"><div class="text-ink-400 text-[9.5px]">uptime</div><div class="text-ink-100">4d</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Wire daemon ↕ clients -->
+        <div class="md:col-span-3 flex justify-center">
+          <div class="relative h-16 w-px">
+            <div class="sse-wire-v absolute inset-0"></div>
+            <div class="sse-pulse go-up"></div>
+            <div class="sse-pulse go-down" style="animation-delay:.8s"></div>
+          </div>
+        </div>
+
+        <!-- Bottom: Clients (two cards) -->
+        <div class="md:col-span-1">
+          <div class="rounded-xl border hair card-bg p-5 text-center">
+            <div class="text-[10.5px] font-mono uppercase tracking-[0.16em] text-ink-400">client · /cli</div>
+            <h3 class="mt-1 text-[16px] font-semibold tracking-tight">helm CLI</h3>
+            <p class="mt-1 text-[12px] font-mono text-ink-400">terminal flow</p>
+          </div>
+        </div>
+        <div class="md:col-span-1 flex justify-center">
+          <span class="font-mono text-[11px] text-ink-400">either, neither, both</span>
+        </div>
+        <div class="md:col-span-1">
+          <div class="rounded-xl border hair card-bg p-5 text-center">
+            <div class="text-[10.5px] font-mono uppercase tracking-[0.16em] text-ink-400">client · /desktop</div>
+            <h3 class="mt-1 text-[16px] font-semibold tracking-tight">Electron app</h3>
+            <p class="mt-1 text-[12px] font-mono text-ink-400">windowed sessions</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========== CODE / DEMO (differentiated surfaces) =========== -->
+  <section id="cli" class="border-b hair">
+    <div class="mx-auto max-w-7xl px-5 sm:px-8 py-20 sm:py-24">
+      <div class="grid lg:grid-cols-12 gap-10">
+        <div class="lg:col-span-4">
+          <h2 class="text-[52px] sm:text-[72px] leading-[0.92] tracking-[-0.035em] font-semibold">
+            Six<br/>commands.
+          </h2>
+          <p class="mt-6 text-[13px] font-mono text-ink-400 tracking-wide">
+            install &middot; setup &middot; chat &middot; queue &middot; cron &middot; eval
+          </p>
+          <div class="mt-8 flex items-center gap-3 text-[11.5px] font-mono text-ink-400">
+            <span class="inline-block w-4 h-4 rounded code-bg border hair"></span> commands
+            <span class="inline-block w-4 h-4 rounded paper-bg border hair ml-2"></span> config
+            <span class="inline-block w-4 h-4 rounded screen-bg border hair ml-2"></span> output
+          </div>
+        </div>
+
+        <div class="lg:col-span-8" id="cli-tabs-root">
+          <div class="rounded-xl border hair-strong overflow-hidden term-shadow">
+            <div role="tablist" aria-label="CLI examples" class="flex items-stretch overflow-x-auto border-b hair surface-2">
+              <button role="tab" aria-selected="true" data-tab="install"      class="tab cli-tab tab-active px-4 h-11 text-[12.5px] font-mono whitespace-nowrap border-r hair">install</button>
+              <button role="tab" aria-selected="false" data-tab="setup"       class="tab cli-tab px-4 h-11 text-[12.5px] font-mono whitespace-nowrap border-r hair text-ink-400">setup</button>
+              <button role="tab" aria-selected="false" data-tab="first-chat"  class="tab cli-tab px-4 h-11 text-[12.5px] font-mono whitespace-nowrap border-r hair text-ink-400">first chat</button>
+              <button role="tab" aria-selected="false" data-tab="loop"        class="tab cli-tab px-4 h-11 text-[12.5px] font-mono whitespace-nowrap border-r hair text-ink-400">issue queue</button>
+              <button role="tab" aria-selected="false" data-tab="cron"        class="tab cli-tab px-4 h-11 text-[12.5px] font-mono whitespace-nowrap border-r hair text-ink-400">cron</button>
+              <button role="tab" aria-selected="false" data-tab="eval"        class="tab cli-tab px-4 h-11 text-[12.5px] font-mono whitespace-nowrap text-ink-400">eval</button>
+              <button class="copy-btn ml-auto h-11 px-4 text-[12px] font-mono text-ink-300 hover:text-ink-100 border-l hair"
+                      data-copy-target="cli-active-block" aria-label="Copy code">copy</button>
+            </div>
+
+            <!-- INSTALL : dark "commands" surface -->
+            <pre data-tab-panel="install" data-surface="cmd"
+                 class="block cli-panel code-bg px-5 py-5 text-[13px] font-mono leading-[1.75] text-ink-200 overflow-x-auto"><span class="tk-com"># commands · type these</span>
+<span class="tk-bin">npm</span> i -g <span class="tk-str">helm-agent</span>
+<span class="tk-bin">helm</span> daemon start</pre>
+
+            <!-- SETUP : paper "config" surface -->
+            <pre data-tab-panel="setup" data-surface="config"
+                 class="hidden cli-panel paper-bg px-5 py-5 text-[13px] font-mono leading-[1.75] overflow-x-auto"><span class="tk-com"># config · interactive wizard</span>
+<span class="tk-bin">helm</span> setup
+<span class="tk-com"># Walks through: provider → workspace → delivery channel.</span>
+<span class="tk-com"># Pick the SDK-default provider to skip the API-key prompt, or</span>
+<span class="tk-com"># paste an API key (stored in the OS keychain; never read back over HTTP).</span>
+<span class="tk-com"># Required before the first chat: a first-run guard blocks</span>
+<span class="tk-com"># `helm workspace chat` / `session send` until a provider is set.</span></pre>
+
+            <!-- FIRST CHAT : split (cmd + screen) -->
+            <div data-tab-panel="first-chat" class="hidden cli-panel">
+              <pre data-surface="cmd" class="code-bg px-5 py-5 text-[13px] font-mono leading-[1.75] text-ink-200 overflow-x-auto m-0"><span class="tk-com"># commands</span>
+<span class="tk-bin">helm</span> workspace chat default <span class="tk-str">"ping"</span>
+
+<span class="tk-com"># (For an explicit workspace instead of the wizard's default:)</span>
+<span class="tk-bin">helm</span> workspace new myapp \
+  <span class="tk-flag">--add-project</span> /your/project/path \
+  <span class="tk-flag">--permission-mode</span> bypassPermissions
+<span class="tk-bin">helm</span> workspace chat myapp <span class="tk-str">"ping"</span></pre>
+              <pre data-surface="screen" class="screen-bg px-5 py-4 text-[13px] font-mono leading-[1.75] overflow-x-auto m-0 border-t hair"><span class="tk-com"># output · streaming</span>
+→ assistant
+pong. running 3 background tasks in default.</pre>
+            </div>
+
+            <!-- LOOP -->
+            <pre data-tab-panel="loop" data-surface="cmd"
+                 class="hidden cli-panel code-bg px-5 py-5 text-[13px] font-mono leading-[1.75] text-ink-200 overflow-x-auto"><span class="tk-com"># commands</span>
+<span class="tk-bin">helm</span> issue add default <span class="tk-str">"Refactor logger"</span>
+<span class="tk-bin">helm</span> loop start default <span class="tk-flag">--max</span> <span class="tk-num">5</span></pre>
+
+            <!-- CRON : paper config -->
+            <pre data-tab-panel="cron" data-surface="config"
+                 class="hidden cli-panel paper-bg px-5 py-5 text-[13px] font-mono leading-[1.75] overflow-x-auto"><span class="tk-com"># config · daily review at 09:00</span>
+<span class="tk-bin">helm</span> cron add <span class="tk-str">"0 9 * * *"</span> <span class="tk-str">"summarize yesterday's commits"</span> \
+  <span class="tk-flag">--workspace</span> default <span class="tk-flag">--deliver</span> telegram</pre>
+
+            <!-- EVAL -->
+            <pre data-tab-panel="eval" data-surface="cmd"
+                 class="hidden cli-panel code-bg px-5 py-5 text-[13px] font-mono leading-[1.75] text-ink-200 overflow-x-auto"><span class="tk-com"># commands</span>
+<span class="tk-bin">helm</span> eval run ./evals/refactor.spec.ts</pre>
+
+            <div class="px-5 py-3 border-t hair text-[11.5px] font-mono text-ink-400 flex items-center gap-2 surface-2">
+              <span>tip:</span>
+              <span class="text-ink-300">bare <span class="text-ink-100">helm setup</span> opens the wizard &mdash; no flags needed.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========== RECENT UPDATES =========== -->
+  <section id="docs" class="border-b hair">
+    <div class="mx-auto max-w-7xl px-5 sm:px-8 py-16 sm:py-20">
+      <div class="grid lg:grid-cols-12 gap-10">
+        <div class="lg:col-span-4">
+          <p class="text-[15px] text-ink-200 leading-[1.55]">
+            Last three releases &mdash; pulled live from the repo.
+          </p>
+          <p class="mt-2 text-[12px] font-mono text-ink-400">
+            the dot in the nav lights up when the newest is under 14 days old.
+          </p>
+        </div>
+        <div class="lg:col-span-8">
+          <ol id="recent-releases" class="rounded-xl border hair card-bg divide-y hair">
+            <li class="p-5 sm:p-6 flex items-start gap-4 text-[13px] text-ink-300 font-mono" data-fallback>
+              <span>Loading releases&hellip;</span>
+            </li>
+          </ol>
+          <noscript>
+            <p class="mt-4 text-[13px] text-ink-300">
+              <a class="underline" href="https://github.com/helm-agent/helm-agent/releases" target="_blank" rel="noopener">View releases on GitHub →</a>
+            </p>
+          </noscript>
+          <a href="/changelog" data-link class="mt-5 inline-flex items-center gap-1.5 text-[13.5px] text-teal hover:text-teal-soft font-medium">
+            See all releases
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========== INSTALL CTA (with octopus watermark) =========== -->
+  <section id="install" class="border-b hair relative overflow-hidden">
+    <svg class="octo-watermark" aria-hidden="true" style="left:50%; top:50%; transform:translate(-50%,-50%); width:560px; height:560px;">
+      <use href="#octo-outline"/>
+    </svg>
+    <div class="relative mx-auto max-w-7xl px-5 sm:px-8 py-20 sm:py-28">
+      <div class="max-w-3xl mx-auto text-center">
+        <p class="text-[12px] font-mono uppercase tracking-[0.18em] text-ink-400"><span class="sec-tag" data-pose="08">[ 08 ] Install</span></p>
+        <h2 class="mt-2 text-[34px] sm:text-[44px] leading-[1.05] tracking-[-0.025em] font-semibold text-balance">
+          Two lines from zero<br/> to an always-on agent.
+        </h2>
+
+        <div class="mt-9 rounded-xl border hair-strong code-bg term-shadow overflow-hidden text-left">
+          <div class="flex items-center gap-2 px-3.5 h-9 border-b hair text-[11.5px] font-mono text-ink-400">
+            <span class="w-2.5 h-2.5 rounded-full bg-[#ff5f57]"></span>
+            <span class="w-2.5 h-2.5 rounded-full bg-[#febc2e]"></span>
+            <span class="w-2.5 h-2.5 rounded-full bg-[#28c840]"></span>
+            <span class="ml-2">~/projects</span>
+          </div>
+          <div class="px-5 sm:px-6 py-5 sm:py-6">
+            <div class="flex items-start gap-3">
+              <span class="text-teal font-mono text-[15px] select-none" aria-hidden="true">$</span>
+              <code id="cta-install-1" class="flex-1 font-mono text-[15px] sm:text-[17px] text-ink-100">npm i -g helm-agent</code>
+              <button class="copy-btn shrink-0 h-8 px-2.5 rounded-md text-[12px] font-mono text-ink-300 hover:text-ink-100 hover:bg-white/5 border hair"
+                      data-copy-target="cta-install-1" aria-label="Copy">copy</button>
+            </div>
+            <div class="flex items-start gap-3 mt-3">
+              <span class="text-teal font-mono text-[15px] select-none" aria-hidden="true">$</span>
+              <code id="cta-install-2" class="flex-1 font-mono text-[15px] sm:text-[17px] text-ink-100">helm setup</code>
+              <button class="copy-btn shrink-0 h-8 px-2.5 rounded-md text-[12px] font-mono text-ink-300 hover:text-ink-100 hover:bg-white/5 border hair"
+                      data-copy-target="cta-install-2" aria-label="Copy">copy</button>
+            </div>
+          </div>
+        </div>
+
+        <p class="mt-5 text-[14.5px] text-ink-300">
+          Install, then run <span class="font-mono text-ink-100">helm setup</span> &mdash; the wizard configures a provider, workspace, and (optional) delivery channel.
+        </p>
+        <p class="mt-2 text-[12.5px] font-mono text-ink-400">
+          desktop app is currently macOS · CLI runs on macOS, Linux, Windows · requires Node ≥ 20
+        </p>
+        <p class="mt-6 text-[12.5px] font-mono text-ink-400">
+          open feedback, public issues ·
+          <a class="text-teal hover:text-teal-soft" href="https://github.com/helm-agent/helm-agent" target="_blank" rel="noopener">github.com/helm-agent/helm-agent</a>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- =============================================== ROUTE: CHANGELOG -->
+<div data-route="/changelog">
+  <section class="border-b hair">
+    <div class="mx-auto max-w-7xl px-5 sm:px-8 py-12 sm:py-16">
+      <p class="text-[12px] font-mono uppercase tracking-[0.18em] text-ink-400">Changelog</p>
+      <h1 class="mt-2 text-[36px] sm:text-[44px] leading-[1.05] tracking-[-0.025em] font-semibold">Every release of Helm.</h1>
+      <p class="mt-3 max-w-xl text-[15px] text-ink-300">
+        Notes mirror the GitHub Releases feed. <span class="font-mono text-ink-100">feat</span>,
+        <span class="font-mono text-ink-100">fix</span>, <span class="font-mono text-ink-100">chore</span>, and
+        <span class="font-mono text-ink-100">docs</span> entries are tagged as chips.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="mx-auto max-w-7xl px-5 sm:px-8 py-10 sm:py-12 grid lg:grid-cols-[200px_1fr] gap-10 lg:gap-16">
+      <aside class="hidden lg:block">
+        <div class="sticky top-24">
+          <p class="text-[11px] font-mono uppercase tracking-[0.16em] text-ink-400">Versions</p>
+          <ol id="changelog-sidebar" class="mt-3 space-y-1 text-[13px] font-mono">
+            <li class="text-ink-400">loading&hellip;</li>
+          </ol>
+        </div>
+      </aside>
+
+      <div class="lg:hidden">
+        <label for="changelog-jump" class="text-[11px] font-mono uppercase tracking-[0.16em] text-ink-400">Jump to version</label>
+        <select id="changelog-jump" class="mt-2 w-full h-10 rounded-md border hair surface-2 px-3 font-mono text-[13px]">
+          <option>loading…</option>
+        </select>
+      </div>
+
+      <div id="changelog-body" class="max-w-[720px] w-full">
+        <div class="rounded-xl border hair card-bg p-8 text-[14px] text-ink-300 font-mono" data-fallback>
+          Loading releases&hellip;
+        </div>
+        <noscript>
+          <p class="mt-4 text-[13px] text-ink-300">
+            <a class="underline" href="https://github.com/helm-agent/helm-agent/releases" target="_blank" rel="noopener">View releases on GitHub →</a>
+          </p>
+        </noscript>
+      </div>
+    </div>
+  </section>
+</div>
+
+</main>
+
+<!-- FOOTER -->
+<footer class="border-t hair">
+  <div class="mx-auto max-w-7xl px-5 sm:px-8 py-14">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-10">
+      <div class="col-span-2 sm:col-span-1">
+        <a href="/" data-link class="flex items-center gap-2" aria-label="Helm — home">
+          <svg width="22" height="22" aria-hidden="true"><use href="#octo-mark"/></svg>
+          <span class="font-semibold tracking-tight">Helm</span>
+        </a>
+        <p class="mt-3 text-[12.5px] text-ink-400 font-mono leading-relaxed">An always-on coding agent.</p>
+      </div>
+      <div>
+        <p class="text-[11px] font-mono uppercase tracking-[0.16em] text-ink-400">Product</p>
+        <ul class="mt-3 space-y-2 text-[13.5px]">
+          <li><a class="text-ink-200 hover:text-teal" href="#features">Features</a></li>
+          <li><a class="text-ink-200 hover:text-teal" href="#install">Download</a></li>
+          <li><a class="text-ink-200 hover:text-teal" href="/changelog" data-link>Changelog</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="text-[11px] font-mono uppercase tracking-[0.16em] text-ink-400">Docs</p>
+        <ul class="mt-3 space-y-2 text-[13.5px]">
+          <li><a class="text-ink-200 hover:text-teal" href="#docs">Architecture</a></li>
+          <li><a class="text-ink-200 hover:text-teal" href="#docs">Guides</a></li>
+          <li><a class="text-ink-200 hover:text-teal" href="#docs">Eval</a></li>
+          <li><a class="text-ink-200 hover:text-teal" href="#docs">Loop</a></li>
+          <li><a class="text-ink-200 hover:text-teal" href="#docs">Cron</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="text-[11px] font-mono uppercase tracking-[0.16em] text-ink-400">Community</p>
+        <ul class="mt-3 space-y-2 text-[13.5px]">
+          <li><a class="text-ink-200 hover:text-teal" href="https://github.com/helm-agent/helm-agent/issues" target="_blank" rel="noopener">Feedback &amp; issues</a></li>
+          <li><a class="text-ink-200 hover:text-teal" href="https://github.com/helm-agent/helm-agent/discussions" target="_blank" rel="noopener">Discussions</a></li>
+          <li><a class="text-ink-200 hover:text-teal" href="#">Legal</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="mt-12 pt-6 border-t hair flex flex-wrap items-center justify-between gap-3 text-[12px] font-mono text-ink-400">
+      <span>Built with Bun + Electron. Powered by Claude Agent SDK.</span>
+      <span>© 2026 Helm</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+(() => {
+  // ---------- Theme ----------
+  const root = document.documentElement;
+  const stored = localStorage.getItem('helm-theme');
+  if (stored === 'light') root.classList.remove('dark');
+  else if (stored === 'dark') root.classList.add('dark');
+  document.getElementById('theme-toggle').addEventListener('click', () => {
+    root.classList.toggle('dark');
+    localStorage.setItem('helm-theme', root.classList.contains('dark') ? 'dark' : 'light');
+  });
+
+  // ---------- Router ----------
+  const routes = document.querySelectorAll('[data-route]');
+  function showRoute(path) {
+    const target = (path === '/changelog') ? '/changelog' : '/';
+    routes.forEach(el => el.classList.toggle('route-active', el.getAttribute('data-route') === target));
+    document.title = target === '/changelog' ? 'Helm — Changelog' : 'Helm — An always-on coding agent';
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    if (target === '/changelog') renderChangelog();
+  }
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('a[data-link]');
+    if (!a) return;
+    const href = a.getAttribute('href');
+    if (!href || href.startsWith('#') || href.startsWith('http')) return;
+    e.preventDefault();
+    history.pushState({}, '', href);
+    showRoute(href);
+  });
+  window.addEventListener('popstate', () => showRoute(location.pathname));
+  showRoute(location.pathname);
+
+  // ---------- Live uptime ticker (hero) ----------
+  const startMs = Date.now() - ((4*86400 + 3*3600 + 12*60 + 41) * 1000);
+  const ticker = document.getElementById('uptime-ticker');
+  function tickUptime() {
+    if (!ticker) return;
+    const s = Math.floor((Date.now() - startMs) / 1000);
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const ss = s % 60;
+    ticker.textContent = `${d}d ${String(h).padStart(2,'0')}h ${String(m).padStart(2,'0')}m ${String(ss).padStart(2,'0')}s`;
+    const ev = document.getElementById('evidence-uptime');
+    if (ev) ev.textContent = `${d}d ${String(h).padStart(2,'0')}h`;
+  }
+  tickUptime(); setInterval(tickUptime, 1000);
+
+  // ---------- Copy buttons ----------
+  document.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const targetId = btn.getAttribute('data-copy-target');
+      let text = '';
+      if (targetId === 'cli-active-block') {
+        const active = document.querySelector('.cli-panel:not(.hidden)');
+        if (!active) return;
+        text = active.innerText;
+      } else {
+        const el = document.getElementById(targetId);
+        if (!el) return;
+        text = el.innerText;
+      }
+      try { await navigator.clipboard.writeText(text.replace(/\u00a0/g,' ').trim()); } catch {}
+      const orig = btn.innerHTML;
+      btn.classList.add('copy-ok');
+      if (btn.textContent.trim().toLowerCase() === 'copy') {
+        btn.textContent = 'copied';
+      } else {
+        btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
+      }
+      setTimeout(() => { btn.classList.remove('copy-ok'); btn.innerHTML = orig; }, 1400);
+    });
+  });
+
+  // ---------- CLI tabs ----------
+  const tabs = document.querySelectorAll('.cli-tab');
+  const panels = document.querySelectorAll('.cli-panel');
+  tabs.forEach(t => {
+    t.addEventListener('click', () => {
+      const key = t.getAttribute('data-tab');
+      tabs.forEach(x => {
+        const on = x === t;
+        x.setAttribute('aria-selected', on ? 'true' : 'false');
+        x.classList.toggle('tab-active', on);
+        x.classList.toggle('text-ink-400', !on);
+      });
+      panels.forEach(p => p.classList.toggle('hidden', p.getAttribute('data-tab-panel') !== key));
+    });
+    t.addEventListener('keydown', (e) => {
+      const list = [...tabs];
+      const i = list.indexOf(t);
+      if (e.key === 'ArrowRight') { list[(i+1)%list.length].focus(); list[(i+1)%list.length].click(); }
+      if (e.key === 'ArrowLeft')  { list[(i-1+list.length)%list.length].focus(); list[(i-1+list.length)%list.length].click(); }
+    });
+  });
+
+  // ---------- Permission modes widget ----------
+  const pmRadios = document.querySelectorAll('input[name="pmode"]');
+  const pmScenes = document.querySelectorAll('.pm-scene');
+  const pmCmd = document.getElementById('pm-cmd');
+  pmRadios.forEach(r => {
+    r.addEventListener('change', () => {
+      pmScenes.forEach(s => s.classList.toggle('active', s.getAttribute('data-scene') === r.value));
+      if (pmCmd) pmCmd.textContent = r.value;
+    });
+  });
+
+  // ---------- Kill-the-terminal demo ----------
+  const stage = document.getElementById('kt-stage');
+  const stepLabel = document.getElementById('kt-state-label');
+  const stepsEls = document.querySelectorAll('#kt-steps li');
+  const termTitle = document.getElementById('kt-term-title');
+  const stream = document.getElementById('kt-stream');
+  const banner = document.getElementById('kt-banner');
+  const after = document.getElementById('kt-after');
+  const replay = document.getElementById('kt-replay');
+  const sequence = [
+    { state: 'alive',  label: 'step 1 / 4',  ms: 2400, title: '~/projects/myapp', stream: 'Reading <span class="text-teal">src/log.ts</span>…', banner: 'cli attached · streaming over SSE', after: '⌃C to detach' },
+    { state: 'kill',   label: 'step 2 / 4',  ms: 1800, title: '~/projects/myapp', stream: '<span class="text-rose-warn">[terminated]</span>', banner: 'cli detached · daemon still working', after: 'pid 84211 alive' },
+    { state: 'gone',   label: 'step 3 / 4',  ms: 2400, title: '(no terminal)',    stream: '',                                            banner: 'no clients attached &mdash; still working.', after: 'buffered 412 tokens' },
+    { state: 'reopen', label: 'step 4 / 4',  ms: 3000, title: '~/projects/myapp', stream: 'Reading <span class="text-teal">src/log.ts</span>… <span class="caret"></span>', banner: 'cli reattached · replayed 412 tokens', after: '↻ resumed mid-stream' },
+  ];
+  let ktIndex = 0, ktTimer = null;
+  function ktApply(i) {
+    const s = sequence[i];
+    stage.setAttribute('data-state', s.state);
+    stepLabel.textContent = s.label;
+    if (termTitle) termTitle.textContent = s.title;
+    if (stream)    stream.innerHTML = s.stream;
+    if (banner)    banner.innerHTML = s.banner;
+    if (after)     after.textContent = s.after;
+    stepsEls.forEach(el => {
+      const on = el.getAttribute('data-step') === s.state;
+      el.classList.toggle('bg-teal/10', on);
+      el.classList.toggle('text-teal', on);
+      el.classList.toggle('border-teal/40', on);
+    });
+  }
+  function ktTick() {
+    ktApply(ktIndex);
+    ktTimer = setTimeout(() => { ktIndex = (ktIndex + 1) % sequence.length; ktTick(); }, sequence[ktIndex].ms);
+  }
+  function ktStart() {
+    clearTimeout(ktTimer); ktIndex = 0; ktTick();
+  }
+  if (stage) {
+    // Lazy-start when stage scrolls into view
+    if ('IntersectionObserver' in window) {
+      const io = new IntersectionObserver((entries) => {
+        entries.forEach(e => {
+          if (e.isIntersecting) { ktStart(); io.disconnect(); }
+        });
+      }, { threshold: 0.2 });
+      io.observe(stage);
+    } else {
+      ktStart();
+    }
+    if (replay) replay.addEventListener('click', ktStart);
+  }
+
+  // animate the daemon uptime in kt scene (slow tick)
+  const ktUp = document.getElementById('kt-daemon-uptime');
+  if (ktUp) {
+    let s = 4*86400 + 3*3600 + 12*60;
+    setInterval(() => {
+      s += 60;
+      const d = Math.floor(s/86400);
+      const h = Math.floor((s%86400)/3600);
+      const m = Math.floor((s%3600)/60);
+      ktUp.textContent = `${d}d ${String(h).padStart(2,'0')}h ${String(m).padStart(2,'0')}m`;
+    }, 60000);
+  }
+
+  // ---------- Reveal on scroll ----------
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { threshold: 0.12 });
+    document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+  } else {
+    document.querySelectorAll('.reveal').forEach(el => el.classList.add('in'));
+  }
+
+  // ---------- Releases (GitHub) ----------
+  const REPO = 'helm-agent/helm-agent';
+  const CACHE_KEY = 'helm-releases-cache-v1';
+  const CACHE_TTL = 1000 * 60 * 30;
+
+  async function fetchReleases() {
+    try {
+      const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+      if (cached && Date.now() - cached.t < CACHE_TTL) return cached.data;
+    } catch {}
+    try {
+      const r = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=100`, {
+        headers: { 'Accept': 'application/vnd.github+json' }
+      });
+      if (!r.ok) throw new Error('fetch failed');
+      const data = await r.json();
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), data }));
+      return data;
+    } catch {
+      return null;
+    }
+  }
+
+  function relTime(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const diff = (Date.now() - d.getTime()) / 1000;
+    if (diff < 60)         return 'just now';
+    if (diff < 3600)       return Math.floor(diff/60) + 'm ago';
+    if (diff < 86400)      return Math.floor(diff/3600) + 'h ago';
+    if (diff < 86400*30)   return Math.floor(diff/86400) + ' days ago';
+    if (diff < 86400*365)  return Math.floor(diff/(86400*30)) + ' mo ago';
+    return Math.floor(diff/(86400*365)) + 'y ago';
+  }
+  function cleanTitle(name) {
+    if (!name) return '';
+    return name.replace(/^chore\(cli\):\s*release\s+/i, '').trim();
+  }
+  function oneLineSummary(rel) {
+    const fromBody = (rel.body || '').split(/\r?\n/).find(l => l.trim() && !l.trim().startsWith('#'));
+    return cleanTitle(fromBody || rel.name || rel.tag_name || '');
+  }
+
+  async function renderRecent() {
+    const list = document.getElementById('recent-releases');
+    const releases = await fetchReleases();
+    if (!releases || releases.length === 0) {
+      list.innerHTML = `<li class="p-5 sm:p-6 text-[13.5px] text-ink-300">
+        <a class="underline" href="https://github.com/${REPO}/releases" target="_blank" rel="noopener">View the full changelog →</a>
+      </li>`;
+      return;
+    }
+    const newest = new Date(releases[0].published_at || releases[0].created_at);
+    if (Date.now() - newest.getTime() < 14 * 86400 * 1000) {
+      const dot = document.getElementById('nav-changelog-dot');
+      if (dot) dot.hidden = false;
+    }
+    list.innerHTML = releases.slice(0, 3).map(r => {
+      const tag = r.tag_name || r.name || '';
+      const when = relTime(r.published_at || r.created_at);
+      const sum = oneLineSummary(r) || 'release';
+      return `<li class="p-5 sm:p-6 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        <a href="/changelog#${escapeAttr(tag)}" data-link class="font-mono text-[13.5px] text-teal hover:text-teal-soft">${escapeHtml(tag)}</a>
+        <span class="font-mono text-[12px] text-ink-400">${escapeHtml(when)}</span>
+        <span class="basis-full sm:basis-0 sm:flex-1 text-[14px] text-ink-200">${escapeHtml(sum)}</span>
+      </li>`;
+    }).join('');
+  }
+
+  let changelogRendered = false;
+  async function renderChangelog() {
+    if (changelogRendered) return;
+    const body = document.getElementById('changelog-body');
+    const side = document.getElementById('changelog-sidebar');
+    const jump = document.getElementById('changelog-jump');
+    const releases = await fetchReleases();
+    if (!releases) {
+      body.innerHTML = `<div class="rounded-xl border hair card-bg p-8 text-[14px] text-ink-300">
+        Couldn't reach GitHub. <a class="underline text-teal" href="https://github.com/${REPO}/releases" target="_blank" rel="noopener">View releases on GitHub →</a>
+      </div>`;
+      return;
+    }
+    if (releases.length === 0) {
+      body.innerHTML = `<div class="rounded-xl border hair card-bg p-8 text-[14px] text-ink-300">
+        No releases yet. <a class="underline text-teal" href="https://github.com/${REPO}" target="_blank" rel="noopener">Follow the GitHub repo for updates.</a>
+      </div>`;
+      return;
+    }
+    side.innerHTML = releases.map((r, i) => {
+      const tag = r.tag_name || r.name || '';
+      return `<li><a class="block px-2 py-1 rounded hover:bg-white/5 ${i===0 ? 'text-teal' : 'text-ink-300'}" data-link href="/changelog#${escapeAttr(tag)}">${escapeHtml(tag)}</a></li>`;
+    }).join('');
+    jump.innerHTML = releases.map((r, i) => {
+      const tag = r.tag_name || r.name || '';
+      return `<option value="${escapeAttr(tag)}"${i===0?' selected':''}>${escapeHtml(tag)}</option>`;
+    }).join('');
+    jump.addEventListener('change', () => {
+      const el = document.getElementById(jump.value);
+      if (el) el.scrollIntoView({ block: 'start' });
+    });
+    body.innerHTML = releases.map((r, i) => {
+      const tag = r.tag_name || r.name || '';
+      const when = new Date(r.published_at || r.created_at);
+      const dateStr = isNaN(when) ? '' : when.toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' });
+      const md = renderMarkdownLite(r.body || '');
+      const isLatest = i === 0;
+      return `<article id="${escapeAttr(tag)}" class="mb-12 scroll-mt-24">
+        <header class="version-sticky sticky top-14 z-10 -mx-4 px-4 py-2 bg-white/70 dark:bg-ink-950/70 border-b hair flex items-center gap-3">
+          <h2 class="font-mono text-[15px] font-semibold tracking-tight">${escapeHtml(tag)}</h2>
+          ${isLatest ? '<span class="chip chip-feat">latest</span>' : ''}
+          <a href="/changelog#${escapeAttr(tag)}" data-link class="ml-auto text-ink-400 hover:text-ink-100" aria-label="Permalink">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 1 0-7.07-7.07L11.5 4.5"/><path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 1 0 7.07 7.07L12.5 19.5"/></svg>
+          </a>
+          <span class="font-mono text-[12px] text-ink-400">${escapeHtml(dateStr)}</span>
+        </header>
+        <div class="md mt-5 text-[14.5px] text-ink-200">${md}</div>
+      </article>`;
+    }).join('');
+    if (location.hash) {
+      const el = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+      if (el) setTimeout(() => el.scrollIntoView({ block: 'start' }), 30);
+    }
+    changelogRendered = true;
+  }
+
+  function renderMarkdownLite(src) {
+    if (!src.trim()) return '<p class="text-ink-400">No notes.</p>';
+    const esc = (s) => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    const lines = src.replace(/\r\n/g, '\n').split('\n');
+    let out = '', inList = false, inCode = false, codeBuf = [];
+    const closeList = () => { if (inList) { out += '</ul>'; inList = false; } };
+    for (let raw of lines) {
+      if (raw.startsWith('```')) {
+        if (inCode) { out += `<pre><code>${esc(codeBuf.join('\n'))}</code></pre>`; codeBuf=[]; inCode=false; }
+        else { closeList(); inCode = true; }
+        continue;
+      }
+      if (inCode) { codeBuf.push(raw); continue; }
+      const line = raw.trim();
+      if (!line) { closeList(); continue; }
+      let m;
+      if ((m = line.match(/^###\s+(.*)/))) { closeList(); out += `<h3>${inline(esc(m[1]))}</h3>`; continue; }
+      if ((m = line.match(/^##\s+(.*)/)))  { closeList(); out += `<h2>${inline(esc(m[1]))}</h2>`; continue; }
+      if ((m = line.match(/^#\s+(.*)/)))   { closeList(); out += `<h1>${inline(esc(m[1]))}</h1>`; continue; }
+      if (/^---+$/.test(line)) { closeList(); out += '<hr/>'; continue; }
+      if ((m = line.match(/^[-*]\s+(.*)/))) {
+        if (!inList) { out += '<ul>'; inList = true; }
+        out += `<li>${inline(esc(m[1]))}</li>`;
+        continue;
+      }
+      closeList();
+      out += `<p>${inline(esc(line))}</p>`;
+    }
+    if (inCode) out += `<pre><code>${esc(codeBuf.join('\n'))}</code></pre>`;
+    closeList();
+    return out;
+    function inline(s) {
+      s = s.replace(/^(feat|fix|chore|docs|perf|refactor)(\([^)]+\))?:\s*/i, (full, type) => {
+        const t = type.toLowerCase();
+        return `<span class="chip chip-${t}">${t}</span> `;
+      });
+      s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+      s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      return s;
+    }
+  }
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function escapeAttr(s) { return escapeHtml(s).replace(/\s+/g, '-'); }
+
+  renderRecent();
+})();
+</script>
+</body>
+</html>
