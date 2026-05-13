@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "helm.sorrycc.com",
+      "name": "helmagent.dev",
       "devDependencies": {
         "@fontsource/geist": "^5.2.8",
         "@fontsource/geist-mono": "^5.2.7",

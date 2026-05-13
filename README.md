@@ -1,4 +1,4 @@
-# helm.sorrycc.com
+# helmagent.dev
 
 Landing page for Helm — an always-on coding agent. Deployed as a Cloudflare Worker with static assets.
 
