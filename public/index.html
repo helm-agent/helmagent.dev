@@ -213,7 +213,7 @@
       </p>
 
       <!-- evidence chip — grounds the abstract claim in a single concrete line -->
-      <div class="mt-10 inline-flex items-stretch rounded-lg border hair-strong code-bg font-mono text-[12.5px] overflow-hidden">
+      <div class="mt-10 inline-flex items-stretch max-w-full rounded-lg border hair-strong code-bg font-mono text-[12.5px] overflow-x-auto">
         <span class="px-3 py-2 text-ink-400 border-r hair">$</span>
         <span class="px-3 py-2 text-ink-100 whitespace-nowrap"><span class="tk-bin">helm</span> daemon status</span>
         <span class="px-3 py-2 border-l hair text-ink-300 whitespace-nowrap">running · pid 84211 · uptime <span id="evidence-uptime">4d 03h</span></span>
@@ -611,7 +611,7 @@
   <section id="cli" class="border-b hair">
     <div class="mx-auto max-w-7xl px-5 sm:px-8 py-20 sm:py-24">
       <div class="grid lg:grid-cols-12 gap-10">
-        <div class="lg:col-span-4">
+        <div class="lg:col-span-4 min-w-0">
           <h2 class="text-[52px] sm:text-[72px] leading-[0.92] tracking-[-0.035em] font-semibold">
             Six<br/>commands.
           </h2>
@@ -625,7 +625,7 @@
           </div>
         </div>
 
-        <div class="lg:col-span-8" id="cli-tabs-root">
+        <div class="lg:col-span-8 min-w-0" id="cli-tabs-root">
           <div class="rounded-xl border hair-strong overflow-hidden term-shadow">
             <div role="tablist" aria-label="CLI examples" class="flex items-stretch overflow-x-auto border-b hair surface-2">
               <button role="tab" aria-selected="true" data-tab="install"      class="tab cli-tab tab-active px-4 h-11 text-[12.5px] font-mono whitespace-nowrap border-r hair">install</button>
