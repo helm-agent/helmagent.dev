@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "build": "bun run build:fonts && bun run build:css",
+    "build": "bun run build:skills && bun run build:fonts && bun run build:css",
+    "build:skills": "bun scripts/fetch-skills.mjs",
     "build:fonts": "bun scripts/copy-fonts.mjs",
     "build:css": "bunx @tailwindcss/cli -i src/styles.css -o public/styles.css --minify",
     "deploy": "bun run build && wrangler deploy"

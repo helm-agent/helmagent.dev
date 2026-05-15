@@ -4,3 +4,4 @@ node_modules
 .DS_Store
 public/styles.css
 public/fonts/
+public/.well-known/
